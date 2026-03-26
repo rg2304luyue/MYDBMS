@@ -25,4 +25,9 @@ public:
 private:
 		string file_name; // 数据库文件名
 		fstream db_io_; // 文件流对象
+
+		// 根据page_id计算文件中的偏移位置
+		size_t page_offset(int page_id) {
+			return static_cast<size_t>(page_id) * PAGE_SIZE;
+		}
 };

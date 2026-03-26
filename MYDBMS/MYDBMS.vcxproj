@@ -133,6 +133,7 @@
     <ClInclude Include="LRUReplacer.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="BPlusTree.cpp" />
     <ClCompile Include="BufferPoolManager.cpp" />
     <ClCompile Include="DiskManager.cpp" />
     <ClCompile Include="LRUReplacer.cpp" />
