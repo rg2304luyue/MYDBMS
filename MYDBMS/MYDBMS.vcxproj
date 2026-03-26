@@ -127,6 +127,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="BPlusTree.h" />
     <ClInclude Include="BufferPoolManager.h" />
     <ClInclude Include="DiskManager.h" />
     <ClInclude Include="LRUReplacer.h" />

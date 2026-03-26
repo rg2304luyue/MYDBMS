@@ -24,6 +24,9 @@
     <ClInclude Include="BufferPoolManager.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="BPlusTree.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="DiskManager.cpp">
