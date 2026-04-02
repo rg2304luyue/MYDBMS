@@ -1,5 +1,7 @@
-#pragma once
+﻿#pragma once
 #include "BufferPoolManager.h"
+#include <vector>
+#include <shared_mutex>
 using namespace std;
 
 // 节点类型标识
@@ -62,11 +64,31 @@ public:
 
 	bool Insert(int key, const Rid& rid);   // 插入键值对
 	bool Search(int key, Rid* result);      // 查找 key 对应的 RID
+	bool Delete(int key);					// 删除 key
+	bool Insert_Impl(int key, const Rid& rid);   // 插入键值对
+	bool Search_Impl(int key, Rid* result);      // 查找 key 对应的 RID
+	bool Delete_Impl(int key);					// 删除 key
 	void Print();                           // 调试用，打印树结构
 
 private:
 	BufferPoolManager* bpm_;
 	int root_page_id_;
+	shared_mutex root_latch_;  // 保护 root_page_id_ 本身的读写
+
+	// ── 带锁的查找 ──
+	// 读路径：沿途 S-lock，拿到子节点后释放父节点
+	Page* find_leaf_read(int key);
+	// 写路径：X-lock，安全节点才释放祖先；返回叶子页，同时 ancestors 持有未释放的锁
+	Page* find_leaf_write(int key, vector<Page*>& ancestors);
+
+	// 辅助：释放 ancestors 列表中所有页的 X-lock 并 unpin
+	void release_ancestors(vector<Page*>& ancestors);
+
+	// ── 判断"安全" ──
+	bool is_leaf_safe_insert(LeafPage* leaf) { return leaf->header.size < leaf->header.max_size - 1; }
+	bool is_internal_safe_insert(InternalPage* n) { return n->header.size < n->header.max_size - 1; }
+	bool is_leaf_safe_delete(LeafPage* leaf) { return leaf->header.size > leaf->header.max_size / 2; }
+	bool is_internal_safe_delete(InternalPage* n) { return n->header.size > n->header.max_size / 2; }
 
 	// ── 查找 ──
 	// 返回 key 所在叶子节点的 Page*，调用方负责 unpin
@@ -88,4 +110,11 @@ private:
 	void init_leaf(LeafPage* leaf, int page_id, int parent_id);
 	void init_internal(InternalPage* node, int page_id, int parent_id);
 	void update_parent_id(int child_page_id, int new_parent_id);
+
+	// ── 删除辅助 ──
+	void delete_from_leaf(LeafPage* leaf, int key);
+	void delete_from_internal(InternalPage* node, int index);
+	void fix_leaf_underflow(Page* leaf_page, int parent_id, int index_in_parent);
+	void fix_internal_underflow(Page* node_page, int parent_id, int index_in_parent);
+	int find_child_index(InternalPage* parent, int child_page_id);
 };

@@ -1,16 +1,18 @@
-#pragma once
+﻿#pragma once
 #include "DiskManager.h"
 #include "LRUReplacer.h"
 #include <unordered_map>
 #include <list>
 #include <mutex>
+#include <shared_mutex>
 using namespace std;
 
 struct Page {
-	int page_id = -1;              // 页ID
-	char data[PAGE_SIZE] = { 0 };  // 页数据
-	bool is_dirty = false;         // 是否被修改过
-	int pin_count = 0;             // 引用计数, 0 才能被踢出
+	int page_id = -1;					// 页ID
+	char data[PAGE_SIZE] = { 0 };		// 页数据
+	bool is_dirty = false;				// 是否被修改过
+	int pin_count = 0;					// 引用计数, 0 才能被踢出
+	mutable shared_mutex page_latch;	// 页级读写锁
 };
 
 class BufferPoolManager {
