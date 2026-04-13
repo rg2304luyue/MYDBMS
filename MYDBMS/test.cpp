@@ -1,102 +1,180 @@
-﻿#include "BPlusTree.h"
-#include <iostream>
-#include <sstream>
-#include <string>
-#include <vector>
-#include "BPlusTree.h"
+﻿// ============================================================
+//  MyDBMS  --  集成演示 & 回归测试
+// ============================================================
+#include "Executor.h"
 #include <iostream>
 #include <cassert>
-#include <vector>
 #include <cstdio>
-
 using namespace std;
 
-// 辅助函数：删除旧的数据库文件，确保测试环境干净
-void CleanUp() {
-    remove("test_db.db");
+// ── 彩色输出（终端）────────────────────────────────────────
+#define GRN "\033[32m"
+#define RED "\033[31m"
+#define CYN "\033[36m"
+#define YEL "\033[33m"
+#define RST "\033[0m"
+
+static void sql(Executor& exec, const string& s) {
+    cout << CYN << "SQL> " << RST << s << "\n";
+    string res = exec.execute(s);
+    cout << res << "\n\n";
 }
 
-void BasicTest() {
-    cout << "--- 正在运行基础测试 (Basic Test) ---" << endl;
-    CleanUp();
-
-    DiskManager* disk_manager = new DiskManager("test_db.db");
-    // 缓冲池大小设为 10 个页
-    BufferPoolManager* bpm = new BufferPoolManager(10, disk_manager);
-    BPlusTree* tree = new BPlusTree(bpm);
-
-    // 1. 测试单条数据插入与查找
-    Rid rid1 = { 10, 1 };
-    tree->Insert(100, rid1);
-
-    Rid result;
-    bool found = tree->Search(100, &result);
-    assert(found == true);
-    assert(result.page_id == 10 && result.slot_num == 1);
-    cout << "单条数据插入与查找: 通过" << endl;
-
-    // 2. 测试查找不存在的键
-    found = tree->Search(999, &result);
-    assert(found == false);
-    cout << "不存在的键查找: 通过" << endl;
-
-    delete tree;
-    delete bpm;
-    delete disk_manager;
-    cout << "基础测试全部通过！\n" << endl;
+static void assert_ok(Executor& exec, const string& s) {
+    string res = exec.execute(s);
+    if (res.rfind("OK", 0) != 0 && res.rfind("(", 0) != 0) {
+        cerr << RED << "FAIL: " << s << "\n  -> " << res << RST << "\n";
+        exit(1);
+    }
 }
 
-void SplitAndScaleTest() {
-    cout << "--- 正在运行分裂与压力测试 (Split and Scale Test) ---" << endl;
-    CleanUp();
+static bool contains(const string& res, const string& sub) {
+    return res.find(sub) != string::npos;
+}
 
-    DiskManager* disk_manager = new DiskManager("test_db.db");
-    BufferPoolManager* bpm = new BufferPoolManager(50, disk_manager);
-    BPlusTree* tree = new BPlusTree(bpm);
+// ── 测试 1：基础 CRUD ────────────────────────────────────────
+void test_basic_crud() {
+    cout << YEL << "\n===== Test 1: Basic CRUD =====\n" << RST;
+    remove("mydb.db");
 
-    // 插入 500 条数据，由于 PAGE_SIZE 是 4096，这必然会触发叶子节点和内部节点的分裂
-    const int num_entries = 500;
-    cout << "正在插入 " << num_entries << " 条数据以触发 B+ 树分裂..." << endl;
+    DiskManager disk("mydb.db");
+    BufferPoolManager bpm(32, &disk);
+    Catalog catalog(&bpm);
+    Executor exec(&catalog);
 
-    for (int i = 1; i <= num_entries; ++i) {
-        Rid rid = { i, i % 10 };
-        bool success = tree->Insert(i, rid);
-        if (!success) {
-            cout << "插入失败，Key: " << i << endl;
+    sql(exec, "CREATE TABLE users (id INT PK, name VARCHAR(32), age INT)");
+    sql(exec, "INSERT INTO users VALUES (1, 'Alice', 20)");
+    sql(exec, "INSERT INTO users VALUES (2, 'Bob', 22)");
+    sql(exec, "INSERT INTO users VALUES (3, 'Charlie', 21)");
+
+    // SELECT ALL
+    string res = exec.execute("SELECT * FROM users");
+    assert(contains(res, "Alice") && contains(res, "Bob") && contains(res, "Charlie"));
+    cout << CYN << "SQL> " RST "SELECT * FROM users\n" << res << "\n\n";
+
+    // SELECT with index
+    res = exec.execute("SELECT * FROM users WHERE id = 2");
+    assert(contains(res, "Bob"));
+    assert(contains(res, "Index Scan"));
+    cout << CYN << "SQL> " RST "SELECT * FROM users WHERE id = 2\n" << res << "\n\n";
+
+    // DELETE + verify
+    assert_ok(exec, "DELETE FROM users WHERE id = 1");
+    res = exec.execute("SELECT * FROM users WHERE id = 1");
+    assert(contains(res, "0 rows"));
+    cout << GRN << "✓ Basic CRUD passed\n" << RST;
+}
+
+// ── 测试 2：大批量插入（触发 B+ 树多次分裂）───────────────
+void test_split_and_scale() {
+    cout << YEL << "\n===== Test 2: Split & Scale (500 rows) =====\n" << RST;
+    remove("mydb.db");
+
+    DiskManager disk("mydb.db");
+    BufferPoolManager bpm(64, &disk);
+    Catalog catalog(&bpm);
+    Executor exec(&catalog);
+
+    exec.execute("CREATE TABLE nums (id INT PK, val INT)");
+
+    const int N = 500;
+    cout << "Inserting " << N << " rows...\n";
+    for (int i = 1; i <= N; i++) {
+        string sql_str = "INSERT INTO nums VALUES ("
+            + to_string(i) + ", " + to_string(i * 10) + ")";
+        string res = exec.execute(sql_str);
+        if (res.rfind("OK", 0) != 0) {
+            cerr << RED << "Insert failed at i=" << i << ": " << res << RST << "\n";
+            exit(1);
         }
     }
 
-    // 验证所有数据是否都能找回
-    cout << "正在验证数据一致性..." << endl;
-    for (int i = 1; i <= num_entries; ++i) {
-        Rid result;
-        bool found = tree->Search(i, &result);
-        if (!found || result.page_id != i || result.slot_num != (i % 10)) {
-            cout << "验证失败! Key: " << i << ", Found: " << found << endl;
-            assert(false);
+    // 验证每一条
+    cout << "Verifying all " << N << " rows via index...\n";
+    for (int i = 1; i <= N; i++) {
+        string q = "SELECT * FROM nums WHERE id = " + to_string(i);
+        string res = exec.execute(q);
+        if (!contains(res, to_string(i)) || !contains(res, "Index Scan")) {
+            cerr << RED << "Verify failed at i=" << i << ": " << res << RST << "\n";
+            exit(1);
         }
     }
-    cout << "500 条数据一致性校验: 通过" << endl;
-
-    // 打印树结构（如果你的 Print 函数已实现）
-    cout << "当前树结构示意图:" << endl;
-    tree->Print();
-
-    delete tree;
-    delete bpm;
-    delete disk_manager;
-    cout << "分裂与压力测试全部通过！" << endl;
+    cout << GRN << "✓ All " << N << " rows verified\n" << RST;
 }
 
+// ── 测试 3：重复主键拒绝插入 ────────────────────────────────
+void test_duplicate_pk() {
+    cout << YEL << "\n===== Test 3: Duplicate PK rejection =====\n" << RST;
+    remove("mydb.db");
+
+    DiskManager disk("mydb.db");
+    BufferPoolManager bpm(16, &disk);
+    Catalog catalog(&bpm);
+    Executor exec(&catalog);
+
+    exec.execute("CREATE TABLE t (id INT PK, v INT)");
+    exec.execute("INSERT INTO t VALUES (1, 100)");
+    string res = exec.execute("INSERT INTO t VALUES (1, 200)");
+    assert(contains(res, "ERROR") && contains(res, "Duplicate"));
+    cout << "Result: " << res << "\n";
+    cout << GRN << "✓ Duplicate PK correctly rejected\n" << RST;
+}
+
+// ── 测试 4：多表操作 ─────────────────────────────────────────
+void test_multi_table() {
+    cout << YEL << "\n===== Test 4: Multi-table =====\n" << RST;
+    remove("mydb.db");
+
+    DiskManager disk("mydb.db");
+    BufferPoolManager bpm(32, &disk);
+    Catalog catalog(&bpm);
+    Executor exec(&catalog);
+
+    sql(exec, "CREATE TABLE orders (oid INT PK, amount INT)");
+    sql(exec, "CREATE TABLE products (pid INT PK, name VARCHAR(20))");
+    sql(exec, "SHOW TABLES");
+    sql(exec, "INSERT INTO orders VALUES (1, 500)");
+    sql(exec, "INSERT INTO products VALUES (42, 'Widget')");
+    sql(exec, "DESC orders");
+
+    string r1 = exec.execute("SELECT * FROM orders");
+    string r2 = exec.execute("SELECT * FROM products");
+    assert(contains(r1, "500") && contains(r2, "Widget"));
+    cout << GRN << "✓ Multi-table passed\n" << RST;
+}
+
+// ── 测试 5：全表扫描 WHERE（非主键列）────────────────────────
+void test_full_scan_where() {
+    cout << YEL << "\n===== Test 5: Full scan WHERE on non-PK column =====\n" << RST;
+    remove("mydb.db");
+
+    DiskManager disk("mydb.db");
+    BufferPoolManager bpm(16, &disk);
+    Catalog catalog(&bpm);
+    Executor exec(&catalog);
+
+    exec.execute("CREATE TABLE emp (id INT PK, dept INT, name VARCHAR(20))");
+    exec.execute("INSERT INTO emp VALUES (1, 10, 'Alice')");
+    exec.execute("INSERT INTO emp VALUES (2, 20, 'Bob')");
+    exec.execute("INSERT INTO emp VALUES (3, 10, 'Carol')");
+
+    string res = exec.execute("SELECT * FROM emp WHERE dept = 10");
+    assert(contains(res, "Alice") && contains(res, "Carol") && !contains(res, "Bob"));
+    assert(contains(res, "Full Scan"));
+    cout << res << "\n";
+    cout << GRN << "✓ Full scan WHERE passed\n" << RST;
+}
+
+// ── main ─────────────────────────────────────────────────────
 int main() {
-    try {
-        BasicTest();
-        SplitAndScaleTest();
-        cout << "所有测试用例运行完毕！" << endl;
-    }
-    catch (const exception& e) {
-        cerr << "测试过程中发生异常: " << e.what() << endl;
-        return 1;
-    }
+    test_basic_crud();
+    test_split_and_scale();
+    test_duplicate_pk();
+    test_multi_table();
+    test_full_scan_where();
+
+    cout << GRN << "\n=============================\n";
+    cout << "  All tests passed!\n";
+    cout << "=============================\n" << RST;
     return 0;
 }

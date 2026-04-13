@@ -129,8 +129,12 @@
   <ItemGroup>
     <ClInclude Include="BPlusTree.h" />
     <ClInclude Include="BufferPoolManager.h" />
+    <ClInclude Include="Catalog.h" />
     <ClInclude Include="DiskManager.h" />
+    <ClInclude Include="Executor.h" />
     <ClInclude Include="LRUReplacer.h" />
+    <ClInclude Include="Record.h" />
+    <ClInclude Include="TableHeap.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="BPlusTree.cpp" />

@@ -27,6 +27,18 @@
     <ClInclude Include="BPlusTree.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="Record.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="TableHeap.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Catalog.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Executor.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="DiskManager.cpp">
